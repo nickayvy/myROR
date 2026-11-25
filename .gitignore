@@ -1,0 +1,35 @@
+# Secrets (this repo is public)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+rclone.conf
+
+# Data: body photos, closet images, database
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+eval/photos/
+eval/outputs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS / editor
+.DS_Store
+.vercel/
+.claude/settings.local.json

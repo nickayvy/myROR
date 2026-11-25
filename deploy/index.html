@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}</style>
+<title>MY-ror Hardware Model</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: a workbench — the 3D viewer fills the left, a parts sheet sits on the right; stacks on phones */
+:root {
+  --bg: #edf0f0;
+  --panel: #f9fbfb;
+  --fg: #162120;
+  --muted: #586867;
+  --line: #d2dbda;
+  --accent: #0c727e;
+  --accent-ink: #ffffff;
+  --accent-soft: #d9eeee;
+  --scene: #e1e7e7;
+  --wall: #dfe4e3;
+  --counter: #c4cbc9;
+  --warn: #9a5800;
+  --good: #26794a;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1313; --panel: #141b1b; --fg: #e4eceb; --muted: #95a6a5; --line: #263232;
+    --accent: #52c2cc; --accent-ink: #062022; --accent-soft: #16373a; --scene: #111717;
+    --wall: #2a3131; --counter: #3a4242; --warn: #f0a646; --good: #5fcf8b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1313; --panel: #141b1b; --fg: #e4eceb; --muted: #95a6a5; --line: #263232;
+  --accent: #52c2cc; --accent-ink: #062022; --accent-soft: #16373a; --scene: #111717;
+  --wall: #2a3131; --counter: #3a4242; --warn: #f0a646; --good: #5fcf8b;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.app { height: 100%; display: flex; flex-direction: column; gap: 12px; padding-block: 14px; }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.top h1 { font-family: var(--f-display); font-weight: 600; font-size: 20px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.top p { margin: 0; color: var(--muted); font-size: 13px; }
+.work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; }
+
+.viewer { position: relative; min-height: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--scene); touch-action: none; }
+#c { display: block; width: 100%; height: 100%; outline: none; }
+#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#labels { position: absolute; inset: 0; pointer-events: none; }
+.lbl {
+  position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; white-space: nowrap;
+  font: 500 11.5px/1 var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  padding: 5px 7px; border-radius: 6px; will-change: transform;
+}
+.lbl:hover, .lbl.hover { border-color: var(--accent); }
+.lbl.sel { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.labels-off #labels, .labels-off #leaders { display: none; }
+
+.toolbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.toolbar button { pointer-events: auto; }
+button {
+  font: 500 12.5px/1 var(--f-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.readout {
+  position: absolute; left: 10px; bottom: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font: 400 11.5px/1.6 var(--f-mono); color: var(--fg); font-variant-numeric: tabular-nums; max-width: calc(100% - 20px);
+}
+.readout b { font-weight: 500; color: var(--muted); display: inline-block; min-width: 72px; }
+.readout .on { color: var(--good); }
+.readout .attn { color: var(--warn); }
+.hint { position: absolute; right: 12px; bottom: 12px; margin: 0; color: var(--muted); font-size: 12px; pointer-events: none; }
+
+.capture {
+  position: absolute; right: 10px; top: 54px; width: 270px; max-width: calc(100% - 20px); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.capture h3 { margin: 0; font: 600 13px/1.3 var(--f-display); }
+.capture ol { margin: 0; padding-left: 20px; font-size: 12px; color: var(--muted); display: grid; gap: 3px; }
+.capture li.now { color: var(--fg); font-weight: 600; }
+.capture li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+.capture .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.sheet { min-height: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 18px; }
+.detail { display: flex; flex-direction: column; gap: 10px; }
+.eyebrow { font: 500 11px/1 var(--f-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.detail h2 { margin: 0; font: 600 19px/1.25 var(--f-display); text-wrap: balance; }
+.detail .does { margin: 0; font-size: 14px; }
+.detail h4 { margin: 4px 0 0; font: 600 12px/1.3 var(--f-body); color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.detail ul { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13px; }
+.specs { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 12.5px; }
+.specs dt { color: var(--muted); }
+.specs dd { margin: 0; font-family: var(--f-mono); font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.note { margin: 0; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); }
+.detail .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.plist { display: flex; flex-direction: column; gap: 12px; }
+.plist h3 { margin: 0 0 6px; font: 600 11px/1 var(--f-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.plist .grp { display: flex; flex-wrap: wrap; gap: 6px; }
+.plist button { font-size: 12px; padding: 7px 9px; }
+.plist button[aria-current="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+
+@media (max-width: 820px) {
+  .app { height: auto; }
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .viewer { height: 64vh; min-height: 380px; }
+  .sheet { overflow: visible; }
+  .hint { display: none; }
+  .capture { top: auto; bottom: 10px; right: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <h1>MY-ror hardware model</h1>
+    <p>24" bathroom smart mirror. Click any part to see how it works.</p>
+  </header>
+  <main class="work">
+    <section class="viewer" id="viewer" aria-label="Interactive 3D model of the mirror">
+      <canvas id="c" tabindex="0" aria-label="3D view. Drag to orbit, scroll to zoom, click a part to inspect it."></canvas>
+      <svg id="leaders" aria-hidden="true"></svg>
+      <div id="labels"></div>
+      <div class="toolbar" role="toolbar" aria-label="View controls">
+        <button id="bExplode" aria-pressed="false">Exploded view</button>
+        <button id="bXray" aria-pressed="true">X-ray glass</button>
+        <button id="bLabels" aria-pressed="true">Labels</button>
+        <button id="bCover" aria-pressed="false">Cover open</button>
+        <button id="bPresence" aria-pressed="true">Someone at sink</button>
+        <button id="bCapture" class="primary">Run capture</button>
+        <button id="bReset">Reset view</button>
+      </div>
+      <div class="capture" id="capturePanel" hidden>
+        <h3>Capture sequence</h3>
+        <ol id="capSteps"></ol>
+        <div class="row">
+          <button id="bCapOpen" hidden>Slide cover open</button>
+          <button id="bCapClose" hidden>Slide cover closed</button>
+          <button id="bCapCancel">Stop</button>
+        </div>
+      </div>
+      <div class="readout" id="readout" aria-live="polite"></div>
+      <p class="hint">Drag to orbit · scroll to zoom · click a part</p>
+    </section>
+    <aside class="sheet" aria-label="Part details">
+      <div class="detail" id="detail"></div>
+      <nav class="plist" id="plist" aria-label="Parts"></nav>
+    </aside>
+  </main>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const $ = (s) => document.querySelector(s);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- Part data ---------- */
+const GROUPS = ['Display', 'Camera and privacy', 'Sensors and light', 'Compute and power', 'Structure'];
+const PARTS = [
+  { id: 'monitor', name: '24" monitor', group: 'Display',
+    does: 'Shows the mirror screen through the glass, mounted in portrait.',
+    how: ['Active area about 30 × 53 cm in portrait.',
+      'The ambient screen shows time, weather, merged calendars, reminders and today\'s outfit.',
+      'Blanks fully when the radar sees nobody at the sink.',
+      'During a capture it ramps to full white for about 200 ms as a fill light.'],
+    specs: [['Mount', 'VESA, portrait'], ['Panel', 'IPS, 300+ nits'], ['Sleep', 'Must blank fully']],
+    note: 'Before building the frame, run the sleep test (wlr-randr --output HDMI-A-1 --off). A floating "No signal" box would show through the mirror.',
+    demo: 'presence' },
+  { id: 'glass', name: 'Two-way glass', group: 'Display',
+    does: 'Works as a normal mirror where the screen is dark, and lets bright pixels and light through where it isn\'t.',
+    how: ['A thin coating reflects most of the light from the bathroom side.',
+      'Bright content on the monitor passes through; black pixels stay mirror. That is why outfit images sit on a light card.',
+      'Larger than the monitor, so the camera can sit behind a non-display area above it.'],
+    specs: [['Size (model)', '50 × 85 cm'], ['Material', 'Real glass'], ['Avoid', 'Acrylic (it warps)']],
+    note: 'Open question: transmission level. More light through helps the camera; less gives a cleaner reflection.' },
+  { id: 'camera', name: 'Camera module', group: 'Camera and privacy',
+    does: 'Takes check-in photos from behind the glass when you tap Take photo on your phone.',
+    how: ['Pi Camera Module 3 Wide on a bracket that comes out through the back panel.',
+      'White balance, exposure and ISO are locked after calibration, so colors stay consistent.',
+      'A black foam baffle presses against the glass so the screen\'s light can\'t flare into the lens.',
+      'At the sink the counter blocks your legs, so check-ins are chest or waist up. Full-body and add-item photos use the phone.'],
+    specs: [['Sensor', '12 MP, autofocus'], ['Lens', '120° wide'], ['Link', 'CSI ribbon to the Pi']],
+    note: 'Never streams or records in the background. Powered down when idle.',
+    demo: 'capture' },
+  { id: 'cover', name: 'Lens cover and slider', group: 'Camera and privacy',
+    does: 'A physical cover you slide by hand. Software can read its position but can never open it.',
+    how: ['A tab under an inch wide on the top edge slides a rod and cover plate across the lens.',
+      'Detents click it into the open and closed positions.',
+      'Shown here as the slider option. A thumbwheel or a magnetic slider would work the same way.'],
+    specs: [['Travel', 'About 5 cm'], ['Control', 'Manual only'], ['Electronics', 'None']],
+    note: 'Open question: camera position (top center or offset) decides which edge the tab goes on.',
+    demo: 'cover' },
+  { id: 'hall', name: 'Hall sensor and magnet', group: 'Camera and privacy',
+    does: 'Tells the Pi whether the cover is open or closed.',
+    how: ['A 3–5 mm magnet rides on the cover plate.',
+      'With the cover closed, the magnet sits over an omnipolar hall switch, which pulls a GPIO pin low.',
+      'The capture waits for "open", and the mirror reminds you until it reads "closed" again.',
+      'If the sensor ever fails, a black frame triggers the same "open the cover" prompt in software.'],
+    specs: [['Part', 'TI DRV5032, omnipolar'], ['Supply', '3.3 V from the Pi'], ['Debounce', 'Ignore < 50 ms']],
+    note: 'Solid-state, with no moving parts. Mounted on the removable camera bracket.',
+    demo: 'cover' },
+  { id: 'demister', name: 'Demister pad', group: 'Camera and privacy',
+    does: 'Keeps steam from fogging the glass in front of the camera.',
+    how: ['A thin heater film behind the glass, with a cutout for the lens.',
+      'Keeps that patch of glass warmer than the steamy air after a shower.',
+      'The quality check still rejects hazy shots with "Mirror is fogged, try again in a minute".'],
+    specs: [['Size (model)', 'About 16 × 11 cm'], ['Type', 'Low-voltage heater film'], ['Cutout', 'Around the lens']] },
+  { id: 'radar', name: 'LD2410 presence radar', group: 'Sensors and light',
+    does: 'Wakes the display when you\'re at the sink and blanks it when you leave.',
+    how: ['A 24 GHz mmWave radar. It senses tiny movements like breathing, so it still sees you standing still.',
+      'Range zones are tuned to about 0–1.5 m, so it ignores the shower and the next room.',
+      'Sits behind a plastic window in the bottom edge, because the mirror coating would block it.'],
+    specs: [['Type', '24 GHz radar (not LiDAR)'], ['Range used', '0–1.5 m'], ['Interface', 'GPIO out + UART']],
+    note: 'Blanking the display is also the biggest power saving: a monitor left on 24/7 costs about $3 a month.',
+    demo: 'presence' },
+  { id: 'led', name: 'LED light strip', group: 'Sensors and light',
+    does: 'Lights every photo the same way, and makes the mirror nicer to use.',
+    how: ['A high-CRI strip around the glass at a fixed color temperature of about 5000K.',
+      'Dimmed by a MOSFET driver board controlled from a Pi GPIO pin.',
+      'Goes to a fixed capture level during the flash, so every shot gets the same light.'],
+    specs: [['CRI', '90+'], ['Color temp', 'About 5000K'], ['Supply', '12 V or 24 V']],
+    demo: 'flash' },
+  { id: 'pi', name: 'Raspberry Pi 4 (4 GB)', group: 'Compute and power',
+    does: 'Runs everything: the mirror display, the backend, the camera and the sensors.',
+    how: ['MagicMirror² (Node) draws the display. mirror-api (Python, FastAPI) serves the phone app and runs the pipeline.',
+      'Reads the hall sensor and radar, dims the LEDs and drives the camera.',
+      'Only makes outbound HTTPS calls (fal, Claude, weather, calendars). Nothing on it is reachable from the internet.'],
+    specs: [['RAM', '4 GB'], ['Cooling', 'Heatsink, vented frame'], ['Network', 'Home Wi-Fi, fixed IP']],
+    note: 'Services restart themselves (systemd), and a hardware watchdog reboots the Pi if it hangs.' },
+  { id: 'ssd', name: 'USB SSD', group: 'Compute and power',
+    does: 'Boots the Pi and holds the closet database and photos.',
+    how: ['One SQLite file (with sqlite-vec for embeddings) plus the image files.',
+      'A nightly encrypted backup to Cloudflare R2.',
+      'Replaces the SD card, which wears out under constant database writes.'],
+    specs: [['Interface', 'USB 3'], ['Holds', 'OS, database, photos'], ['Backup', 'Nightly, encrypted']] },
+  { id: 'psu', name: 'Power supplies', group: 'Compute and power',
+    does: 'Powers the Pi, the monitor and the LEDs from one wall cable.',
+    how: ['The official 5 V / 3 A Pi supply, the monitor\'s own supply, and a 12/24 V supply for the LEDs.',
+      'The bricks sit low behind the monitor, away from the sink side.',
+      'One cord runs to a GFCI outlet.'],
+    specs: [['Pi', '5 V, 3 A official'], ['Outlet', 'GFCI'], ['Placement', 'Away from water']] },
+  { id: 'frame', name: 'Frame', group: 'Structure',
+    does: 'Holds the glass, hides the electronics and carries the controls on its edges.',
+    how: ['About 6–8 cm deep, enough for the monitor, the Pi, the camera module and cable bends.',
+      'Vented so the Pi doesn\'t overheat and slow down.',
+      'Has a slot in the top edge for the cover slider and a window in the bottom edge for the radar.'],
+    specs: [['Depth', '6–8 cm'], ['Total weight', 'About 10–12 kg'], ['Material', 'Open question']],
+    note: 'Open question: frame material decides between a magnetic slider and a thumbwheel.' },
+  { id: 'backpanel', name: 'Removable back panel', group: 'Structure',
+    does: 'The only way in. Every part that can fail is reachable from here.',
+    how: ['Lift the mirror off its wall mount, then unscrew the panel.',
+      'The camera, cover sensor, Pi and SSD sit on modules behind it.',
+      'Nothing is glued to the glass.'],
+    specs: [['Access', 'Screws'], ['Hatch', 'Camera module'], ['Vents', 'Top and bottom']] },
+  { id: 'cleat', name: 'Wall mount (French cleat)', group: 'Structure',
+    does: 'Holds the 10–12 kg mirror securely and lets it lift off for repairs.',
+    how: ['A 45° cleat screwed into the wall studs (or heavy-duty anchors), with a matching cleat on the back of the mirror.',
+      'Lift it up and out to reach the back panel.'],
+    specs: [['Load', 'About 10–12 kg'], ['Fixing', 'Studs or heavy-duty anchors']],
+    note: 'A suggestion. The spec only requires studs or heavy-duty anchors.' },
+];
+const PART = Object.fromEntries(PARTS.map((p) => [p.id, p]));
+
+/* ---------- State ---------- */
+const S = {
+  selected: null, hover: null, exploded: false, xray: true, labels: true,
+  coverOpen: false, presence: true, screen: 'ambient', countdown: 0, coverReminder: false,
+  led: 0.35, ledTarget: 0.35, coneUntil: 0,
+  capture: null,
+};
+
+/* ---------- Renderer, scene, camera ---------- */
+const viewer = $('#viewer');
+const canvas = $('#c');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+} catch (e) {
+  viewer.insertAdjacentHTML('beforeend', '<div class="err">This browser could not start 3D rendering (WebGL). The part list on the right still explains every part.</div>');
+  throw e;
+}
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const cam = new THREE.PerspectiveCamera(34, 1, 1, 4000);
+const HOME_POS = new THREE.Vector3(70, 26, 190);
+const HOME_TARGET = new THREE.Vector3(0, -2, -4);
+cam.position.copy(HOME_POS);
+const controls = new OrbitControls(cam, canvas);
+controls.target.copy(HOME_TARGET);
+controls.enableDamping = true;
+controls.minDistance = 35;
+controls.maxDistance = 520;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x7d8584, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+sun.position.set(70, 130, 150);
+scene.add(sun);
+const ledLight = new THREE.PointLight(0xfff0dc, 0, 320, 1.4);
+ledLight.position.set(0, 0, 45);
+scene.add(ledLight);
+
+/* ---------- Helpers ---------- */
+const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.05, ...o });
+const P = {};
+const pickables = [];
+function part(id, explode, anchor) {
+  const g = new THREE.Group();
+  scene.add(g);
+  P[id] = { id, group: g, explode: new THREE.Vector3(...explode), anchor: new THREE.Vector3(...anchor) };
+  return P[id];
+}
+function add(p, geom, mat, x, y, z, rot, parent) {
+  const m = new THREE.Mesh(geom, mat);
+  m.position.set(x, y, z);
+  if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+  m.userData.part = p.id;
+  (parent || p.group).add(m);
+  pickables.push(m);
+  return m;
+}
+
+/* ---------- Geometry (units: cm; front of glass at z = 0) ---------- */
+// Frame: 58 × 93 cm outer, 8 cm deep
+const fr = part('frame', [0, 0, 0], [27, 40, 0.6]);
+const wood = () => std(0xb68b5e, { roughness: 0.78 });
+add(fr, box(58, 4, 8), wood(), 0, 44.5, -3.4);
+add(fr, box(58, 4, 8), wood(), 0, -44.5, -3.4);
+add(fr, box(4, 85, 8), wood(), -27, 0, -3.4);
+add(fr, box(4, 85, 8), wood(), 27, 0, -3.4);
+add(fr, box(7.4, 0.2, 0.6), std(0x231f1c), 2.5, 46.55, -2.1); // slider slot
+
+// Glass
+const gl = part('glass', [0, 0, 38], [-21, -34, 0.1]);
+const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xdfe7e9, metalness: 0.85, roughness: 0.05, transparent: true, opacity: 0.2, depthWrite: false, envMapIntensity: 1.4 });
+add(gl, box(50, 85, 0.6), glassMat, 0, 0, -0.3).renderOrder = 10;
+
+// Monitor + screen
+const mo = part('monitor', [0, 0, -12], [13, -24, -0.75]);
+add(mo, box(32.5, 55, 3), std(0x1c2023, { roughness: 0.45 }), 0, -12, -2.3);
+add(mo, box(10, 10, 0.6), std(0x70777b, { metalness: 0.6, roughness: 0.4 }), 0, -12, -4.1);
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = 512; screenCanvas.height = 905;
+const screenTex = new THREE.CanvasTexture(screenCanvas);
+screenTex.colorSpace = THREE.SRGBColorSpace;
+screenTex.anisotropy = 4;
+add(mo, new THREE.PlaneGeometry(30, 53), new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }), 0, -12, -0.78);
+
+// Camera module on its bracket
+const ca = part('camera', [0, 0, 7], [0, 30, -2.9]);
+add(ca, box(9, 7, 0.4), std(0x3a3f43, { metalness: 0.4, roughness: 0.5 }), 0, 30, -4.3);
+add(ca, box(2.5, 2.4, 0.15), std(0x2e6a44), 0, 30, -3.9);
+add(ca, box(0.9, 0.9, 0.5), std(0x111315), 0, 30, -3.55);
+add(ca, new THREE.CylinderGeometry(0.42, 0.42, 0.4, 24), std(0x08090b, { metalness: 0.3, roughness: 0.12 }), 0, 30, -3.1, [Math.PI / 2, 0, 0]);
+add(ca, new THREE.CylinderGeometry(1.1, 1.1, 1.25, 32, 1, true), std(0x0d0e0f, { roughness: 0.95, side: THREE.DoubleSide }), 0, 30, -1.225, [Math.PI / 2, 0, 0]);
+for (const [sx, sy] of [[-3.8, 2.8], [3.8, 2.8], [-3.8, -2.8], [3.8, -2.8]]) {
+  add(ca, new THREE.CylinderGeometry(0.3, 0.3, 2.6, 12), std(0x9aa1a6, { metalness: 0.7, roughness: 0.3 }), sx, 30 + sy, -5.8, [Math.PI / 2, 0, 0]);
+}
+
+// Lens cover: tab on top edge, rod, plate, magnet (slides 5 cm in x)
+const co = part('cover', [0, 0, 13], [0, 47.6, -2.1]);
+const coverRig = new THREE.Group();
+co.group.add(coverRig);
+add(co, box(3.2, 3.2, 0.25), std(0x17181a, { roughness: 0.7 }), 0, 30, -2.1, null, coverRig);
+add(co, box(0.3, 16.6, 0.3), std(0x8e959a, { metalness: 0.7, roughness: 0.3 }), 0, 38.3, -2.1, null, coverRig);
+add(co, box(2.0, 0.9, 1.3), std(0xc7a14e, { metalness: 0.7, roughness: 0.35 }), 0, 47.0, -2.1, null, coverRig);
+add(co, new THREE.CylinderGeometry(0.3, 0.3, 0.3, 16), std(0xa3abb2, { metalness: 0.8, roughness: 0.25 }), 0, 28.75, -1.9, [Math.PI / 2, 0, 0], coverRig);
+
+// Hall sensor on a small board under the cover
+const ha = part('hall', [0, -4, 10], [0, 27.3, -2.3]);
+add(ha, box(1.6, 1.0, 0.12), std(0x5b3d8a), 0, 27.4, -2.35);
+add(ha, box(0.4, 0.3, 0.15), std(0x111111), 0, 27.5, -2.25);
+const hallLedMat = std(0x0b2a16, { emissive: 0x22ff77, emissiveIntensity: 0 });
+add(ha, box(0.25, 0.15, 0.1), hallLedMat, 0.55, 27.15, -2.27);
+
+// Demister pad with a lens cutout
+const de = part('demister', [0, 0, 20], [-6.5, 33.8, -0.66]);
+const padShape = new THREE.Shape();
+padShape.moveTo(-8, -5.5); padShape.lineTo(8, -5.5); padShape.lineTo(8, 5.5); padShape.lineTo(-8, 5.5); padShape.lineTo(-8, -5.5);
+const hole = new THREE.Path(); hole.absarc(0, 0, 1.4, 0, Math.PI * 2, true); padShape.holes.push(hole);
+add(de, new THREE.ShapeGeometry(padShape), std(0xc87437, { roughness: 0.8, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }), 0, 30, -0.66);
+
+// Presence radar behind a window in the bottom edge
+const ra = part('radar', [0, -11, 7], [0, -44.6, 0.65]);
+add(ra, box(2.2, 1.6, 0.15), std(0x1f4f86), 0, -44.5, -0.2);
+add(ra, box(0.5, 0.5, 0.05), std(0xc9a14e, { metalness: 0.8 }), -0.5, -44.5, -0.1);
+add(ra, box(0.5, 0.5, 0.05), std(0xc9a14e, { metalness: 0.8 }), 0.5, -44.5, -0.1);
+add(ra, box(3.2, 2.4, 0.12), std(0x26292b, { transparent: true, opacity: 0.55, roughness: 0.3 }), 0, -44.5, 0.62);
+const coneGeo = new THREE.ConeGeometry(105, 150, 48, 1, true);
+coneGeo.translate(0, -75, 0);
+coneGeo.rotateX(-Math.PI / 2);
+const coneMat = new THREE.MeshBasicMaterial({ color: 0x2bb3bf, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+const cone = new THREE.Mesh(coneGeo, coneMat);
+cone.renderOrder = 20;
+scene.add(cone);
+
+// LED strip around the glass + driver board
+const le = part('led', [0, 0, 28], [-24.7, 12, 0.45]);
+const ledMat = std(0xfff3e0, { emissive: 0xffe6c4, emissiveIntensity: 0.6, roughness: 0.4 });
+add(le, box(49.4, 0.5, 0.25), ledMat, 0, 42.2, 0.3);
+add(le, box(49.4, 0.5, 0.25), ledMat, 0, -42.2, 0.3);
+add(le, box(0.5, 84.4, 0.25), ledMat, -24.7, 0, 0.3);
+add(le, box(0.5, 84.4, 0.25), ledMat, 24.7, 0, 0.3);
+add(le, box(3, 2, 0.8), std(0x2a2b2c), 18, -38.5, -6.5);
+
+// Raspberry Pi 4
+const pi = part('pi', [-8, 0, -26], [-13, 31.5, -5.3]);
+add(pi, box(8.5, 5.6, 0.15), std(0x2e6f45), -13, 31, -6.9);
+add(pi, box(2.4, 2.4, 1.0), std(0x1d1e20, { metalness: 0.5, roughness: 0.4 }), -14.2, 31.3, -6.3);
+for (let i = 0; i < 5; i++) add(pi, box(0.18, 2.4, 0.5), std(0x1d1e20, { metalness: 0.5 }), -15.2 + i * 0.5, 31.3, -5.55);
+add(pi, box(1.6, 1.6, 1.3), std(0xb7bdc1, { metalness: 0.7, roughness: 0.3 }), -9.4, 33.1, -6.15);
+add(pi, box(1.5, 1.4, 1.1), std(0xb7bdc1, { metalness: 0.7, roughness: 0.3 }), -9.4, 31.1, -6.25);
+add(pi, box(1.5, 1.4, 1.1), std(0xb7bdc1, { metalness: 0.7, roughness: 0.3 }), -9.4, 29.3, -6.25);
+add(pi, box(5.1, 0.5, 0.85), std(0x151515), -13.5, 33.45, -6.4);
+add(pi, box(2.2, 0.4, 0.5), std(0xe9e6df), -11.6, 28.8, -6.6);
+
+// SSD
+const ss = part('ssd', [8, 0, -26], [14, 31, -6.0]);
+add(ss, box(4.5, 9, 0.9), std(0x2a2f36, { roughness: 0.35, metalness: 0.3 }), 14, 30, -6.7);
+
+// Power supplies
+const ps = part('psu', [0, -6, -26], [-8, -31, -4.3]);
+add(ps, box(10, 5, 2.8), std(0x1b1d1f), -8, -32, -5.8);
+add(ps, box(6, 4, 2.4), std(0xeeeeec), 5, -33, -5.9);
+add(ps, box(7, 3.2, 2.2), std(0xa7acb0, { metalness: 0.6, roughness: 0.35 }), 6, -25, -6.0);
+
+// Back panel with vents and hatch outline
+const bp = part('backpanel', [0, 0, -40], [18, -36, -7.45]);
+const backMat = std(0x8d7c68, { transparent: true, opacity: 0.4, depthWrite: false, roughness: 0.9 });
+add(bp, box(49.6, 84.6, 0.5), backMat, 0, 0, -7.15).renderOrder = 5;
+for (let i = -1; i <= 1; i++) {
+  add(bp, box(7, 0.7, 0.55), std(0x2c2621), i * 10, 39.5, -7.15);
+  add(bp, box(7, 0.7, 0.55), std(0x2c2621), i * 10, -39.5, -7.15);
+}
+const hatchPts = [[-10, 23], [10, 23], [10, 37], [-10, 37], [-10, 23]].map(([x, y]) => new THREE.Vector3(x, y, -7.42));
+bp.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(hatchPts), new THREE.LineBasicMaterial({ color: 0x3b332b })));
+
+// French cleat
+const cl = part('cleat', [0, 0, -52], [0, 34, -9.2]);
+add(cl, box(44, 5, 1.6), std(0xc9a87b, { roughness: 0.8 }), 0, 34, -9.2);
+add(cl, box(44, 4, 0.9), std(0xc9a87b, { roughness: 0.8 }), 0, 36.6, -7.85);
+
+/* ---------- Context: wall, counter, sink, outlet, cables ---------- */
+const context = new THREE.Group();
+scene.add(context);
+const wallMat = std(0xdfe4e3, { roughness: 0.95 });
+const counterMat = std(0xc4cbc9, { roughness: 0.6 });
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(240, 200), wallMat);
+wall.position.set(0, -12, -10.05);
+context.add(wall);
+const counter = new THREE.Mesh(box(118, 4, 54), counterMat);
+counter.position.set(0, -60, 17);
+context.add(counter);
+const basin = new THREE.Mesh(new THREE.CylinderGeometry(17, 17, 0.6, 48), std(0xf4f5f4, { roughness: 0.3 }));
+basin.scale.set(1, 1, 0.62); basin.position.set(0, -57.8, 20);
+context.add(basin);
+const bowl = new THREE.Mesh(new THREE.CylinderGeometry(14.5, 14.5, 0.62, 48), std(0xd9dcdb, { roughness: 0.3 }));
+bowl.scale.set(1, 1, 0.6); bowl.position.set(0, -57.7, 20);
+context.add(bowl);
+const tap = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 9, 16), std(0xc9ced1, { metalness: 0.9, roughness: 0.2 }));
+tap.position.set(0, -53.5, 1);
+context.add(tap);
+const spout = new THREE.Mesh(box(2, 1.6, 9), std(0xc9ced1, { metalness: 0.9, roughness: 0.2 }));
+spout.position.set(0, -49.6, 5);
+context.add(spout);
+const outlet = new THREE.Mesh(box(4.5, 7, 0.8), std(0xf2f2f0, { roughness: 0.5 }));
+outlet.position.set(38, -40, -9.6);
+context.add(outlet);
+const btnR = new THREE.Mesh(box(1.4, 0.8, 0.3), std(0xc23b2b)); btnR.position.set(38, -39, -9.1); context.add(btnR);
+const btnB = new THREE.Mesh(box(1.4, 0.8, 0.3), std(0x222222)); btnB.position.set(38, -41, -9.1); context.add(btnB);
+function cable(points, r, color) {
+  const curve = new THREE.CatmullRomCurve3(points.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
+  const m = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, r, 8, false), std(color, { roughness: 0.6 }));
+  context.add(m);
+}
+cable([[0, 30, -4.1], [-3, 29, -5.2], [-8, 28.6, -6.0], [-11.6, 28.8, -6.4]], 0.14, 0xd9cdb2); // CSI ribbon
+cable([[11.7, 30, -6.6], [9, 30.5, -6.2], [-8.6, 31.1, -6.0]], 0.22, 0x222222); // USB to SSD
+cable([[5, -35.2, -6.0], [14, -44, -6.5], [24, -46.8, -7.5], [34, -46, -9.2], [38, -43.6, -9.3]], 0.3, 0x2b2b2b); // mains cord
+
+/* ---------- Screen drawing ---------- */
+function rr(x, ctx, X, Y, W, H, R) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(X, Y, W, H, R); else ctx.rect(X, Y, W, H);
+  if (x === 'fill') ctx.fill(); else ctx.stroke();
+}
+function silhouette(ctx, dashed, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 4;
+  if (dashed) ctx.setLineDash([14, 10]);
+  ctx.beginPath(); ctx.arc(256, 300, 72, 0, Math.PI * 2);
+  dashed ? ctx.stroke() : ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(110, 905); ctx.lineTo(110, 560); ctx.quadraticCurveTo(116, 430, 256, 420); ctx.quadraticCurveTo(396, 430, 402, 560); ctx.lineTo(402, 905);
+  dashed ? ctx.stroke() : ctx.fill();
+  ctx.restore();
+}
+function garment(ctx, kind, x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = '#e1e5e3'; rr('fill', ctx, 0, 0, 96, 130, 10);
+  if (kind === 'shell') {
+    ctx.fillStyle = '#22354f';
+    ctx.beginPath(); ctx.moveTo(30, 18); ctx.lineTo(66, 18); ctx.lineTo(88, 40); ctx.lineTo(82, 92); ctx.lineTo(72, 90); ctx.lineTo(72, 114); ctx.lineTo(24, 114); ctx.lineTo(24, 90); ctx.lineTo(14, 92); ctx.lineTo(8, 40); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#8fa3bd'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(48, 22); ctx.lineTo(48, 114); ctx.stroke();
+  } else if (kind === 'tee') {
+    ctx.fillStyle = '#fbfbf8'; ctx.strokeStyle = '#9aa3a1'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(32, 26); ctx.lineTo(64, 26); ctx.lineTo(86, 44); ctx.lineTo(76, 58); ctx.lineTo(70, 54); ctx.lineTo(70, 108); ctx.lineTo(26, 108); ctx.lineTo(26, 54); ctx.lineTo(20, 58); ctx.lineTo(10, 44); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (kind === 'jeans') {
+    ctx.fillStyle = '#3e5f8e';
+    ctx.beginPath(); ctx.moveTo(24, 14); ctx.lineTo(72, 14); ctx.lineTo(76, 118); ctx.lineTo(54, 118); ctx.lineTo(48, 50); ctx.lineTo(42, 118); ctx.lineTo(20, 118); ctx.closePath(); ctx.fill();
+  } else {
+    ctx.fillStyle = '#fbfbf8'; ctx.strokeStyle = '#9aa3a1'; ctx.lineWidth = 2;
+    for (const oy of [40, 78]) { ctx.beginPath(); ctx.moveTo(10, oy + 22); ctx.lineTo(10, oy + 6); ctx.quadraticCurveTo(40, oy, 54, oy + 12); ctx.quadraticCurveTo(86, oy + 14, 86, oy + 22); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+function drawScreen() {
+  const ctx = screenCanvas.getContext('2d');
+  const W = 512, H = 905;
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const mode = S.screen;
+  const textC = (t, y, font, color) => { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.fillText(t, W / 2, y); ctx.textAlign = 'left'; };
+  if (mode === 'off') { screenTex.needsUpdate = true; return; }
+  if (mode === 'flash') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); screenTex.needsUpdate = true; return; }
+  if (mode === 'coverPrompt') {
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(256, 120); ctx.lineTo(256, 40); ctx.moveTo(226, 70); ctx.lineTo(256, 40); ctx.lineTo(286, 70); ctx.stroke();
+    textC('Slide the camera', 380, '600 44px "Space Grotesk", sans-serif', '#fff');
+    textC('cover open', 432, '600 44px "Space Grotesk", sans-serif', '#fff');
+    textC('Waiting for the hall sensor', 500, '400 22px Inter, sans-serif', '#9fb0af');
+  } else if (mode === 'preview' || mode === 'checking') {
+    const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#2a3134'); g.addColorStop(1, '#101416');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    silhouette(ctx, true, '#cfd8d8');
+    if (mode === 'checking') textC('Checking the photo', 860, '500 26px Inter, sans-serif', '#fff');
+    else if (S.countdown > 0) textC(String(S.countdown), 560, '600 220px "Space Grotesk", sans-serif', '#fff');
+    else textC('Stand inside the outline', 860, '500 26px Inter, sans-serif', '#fff');
+  } else if (mode === 'result') {
+    ctx.fillStyle = '#f2f4f3'; rr('fill', ctx, 40, 60, 432, 640, 16);
+    ctx.save(); ctx.beginPath(); ctx.rect(40, 60, 432, 640); ctx.clip();
+    ctx.translate(0, -40); silhouette(ctx, false, '#8b9a99'); ctx.restore();
+    textC('Keep or Retake', 790, '600 36px "Space Grotesk", sans-serif', '#fff');
+    textC('on your phone', 832, '400 24px Inter, sans-serif', '#c9d3d2');
+  } else {
+    // Ambient
+    ctx.fillStyle = '#fff'; ctx.font = '600 86px "Space Grotesk", sans-serif'; ctx.fillText('7:42', 34, 128);
+    ctx.font = '400 24px Inter, sans-serif'; ctx.fillStyle = '#d7dfde'; ctx.fillText('Wednesday 11 November', 36, 166);
+    ctx.font = '500 28px Inter, sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText('12°  Light rain after 4 pm', 36, 222);
+    ctx.font = '400 19px Inter, sans-serif'; ctx.fillStyle = '#9fb0af'; ctx.fillText('High 14° · Low 8°', 36, 252);
+    ctx.font = '600 15px Inter, sans-serif'; ctx.fillStyle = '#86a9ab'; ctx.fillText('TODAY', 36, 312);
+    const ev = [['09:30', 'Team standup'], ['14:00', 'Dentist'], ['19:00', 'Dinner with Sam']];
+    ev.forEach(([t, n], i) => { const y = 350 + i * 40; ctx.font = '500 21px "JetBrains Mono", monospace'; ctx.fillStyle = '#c3cfce'; ctx.fillText(t, 36, y); ctx.font = '400 22px Inter, sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(n, 126, y); });
+    ctx.font = '600 15px Inter, sans-serif'; ctx.fillStyle = '#86a9ab'; ctx.fillText('REMINDERS', 36, 500);
+    ['Pick up dry cleaning', 'Water the plants'].forEach((r, i) => { ctx.font = '400 22px Inter, sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText('·  ' + r, 36, 538 + i * 36); });
+    ctx.fillStyle = '#f3f4f2'; rr('fill', ctx, 26, 626, 460, 258, 16);
+    ctx.font = '600 25px "Space Grotesk", sans-serif'; ctx.fillStyle = '#152020'; ctx.fillText('Today\'s outfit', 50, 668);
+    ['shell', 'tee', 'jeans', 'shoes'].forEach((k, i) => garment(ctx, k, 50 + i * 106, 690));
+    ctx.font = '400 18px Inter, sans-serif'; ctx.fillStyle = '#3c4948'; ctx.fillText('Rain after 4 pm, so the waterproof shell.', 50, 856);
+    ctx.font = '400 14px Inter, sans-serif'; ctx.fillStyle = '#6d7d7c'; ctx.textAlign = 'right'; ctx.fillText('Sample data', W - 28, 40); ctx.textAlign = 'left';
+    if (S.coverReminder) {
+      ctx.fillStyle = '#f2a33a'; ctx.fillRect(0, 0, W, 66);
+      textC('Close the camera cover', 43, '600 26px Inter, sans-serif', '#1b1206');
+    }
+  }
+  screenTex.needsUpdate = true;
+}
+drawScreen();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawScreen);
+
+/* ---------- Labels ---------- */
+const labelsEl = $('#labels');
+const leaders = $('#leaders');
+const SVGNS = 'http://www.w3.org/2000/svg';
+const L = {};
+const TC = { accent: '#0c727e', muted: '#586867' };
+for (const p of PARTS) {
+  const el = document.createElement('button');
+  el.className = 'lbl';
+  el.type = 'button';
+  el.textContent = p.name;
+  el.addEventListener('click', () => select(p.id, true));
+  el.addEventListener('pointerenter', () => setHover(p.id));
+  el.addEventListener('pointerleave', () => setHover(null));
+  labelsEl.appendChild(el);
+  const line = document.createElementNS(SVGNS, 'line');
+  line.setAttribute('stroke-width', '1');
+  const dot = document.createElementNS(SVGNS, 'circle');
+  dot.setAttribute('r', '3');
+  leaders.append(line, dot);
+  L[p.id] = { el, line, dot, w: 0, h: 0 };
+}
+function anchorWorld(id) { return P[id].anchor.clone().add(P[id].group.position); }
+function updateLabels(w, h) {
+  if (!S.labels) return;
+  const accent = TC.accent, lineC = TC.muted;
+  const items = [];
+  for (const p of PARTS) {
+    const v = anchorWorld(p.id).project(cam);
+    const l = L[p.id];
+    if (v.z > 1 || v.x < -1.2 || v.x > 1.2 || v.y < -1.2 || v.y > 1.2) { l.el.hidden = true; l.line.style.display = 'none'; l.dot.style.display = 'none'; continue; }
+    l.el.hidden = false; l.line.style.display = ''; l.dot.style.display = '';
+    if (!l.w) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
+    items.push({ id: p.id, sx: (v.x + 1) / 2 * w, sy: (1 - v.y) / 2 * h, l });
+  }
+  items.sort((a, b) => a.sy - b.sy);
+  const placed = [];
+  const hit = (r) => placed.some((q) => r.x < q.x + q.w + 4 && r.x + r.w + 4 > q.x && r.y < q.y + q.h + 3 && r.y + r.h + 3 > q.y);
+  for (const it of items) {
+    const { l } = it;
+    const right = it.sx < w * 0.62;
+    let x = right ? it.sx + 16 : it.sx - 16 - l.w;
+    let y = it.sy - l.h - 8;
+    let tries = 0;
+    while (hit({ x, y, w: l.w, h: l.h }) && tries < 12) { y += l.h + 4; tries++; }
+    x = Math.max(6, Math.min(w - l.w - 6, x));
+    y = Math.max(52, Math.min(h - l.h - 6, y));
+    placed.push({ x, y, w: l.w, h: l.h });
+    l.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    const sel = S.selected === it.id;
+    const c = sel || S.hover === it.id ? accent : lineC;
+    l.dot.setAttribute('cx', it.sx.toFixed(1)); l.dot.setAttribute('cy', it.sy.toFixed(1)); l.dot.setAttribute('fill', c);
+    const lx = right ? x : x + l.w;
+    l.line.setAttribute('x1', it.sx.toFixed(1)); l.line.setAttribute('y1', it.sy.toFixed(1));
+    l.line.setAttribute('x2', lx.toFixed(1)); l.line.setAttribute('y2', (y + l.h / 2).toFixed(1));
+    l.line.setAttribute('stroke', c);
+    l.el.classList.toggle('sel', sel);
+    l.el.classList.toggle('hover', S.hover === it.id);
+  }
+}
+
+/* ---------- Selection, detail panel, part list ---------- */
+let selHelper = null;
+const focusGoal = { active: false, target: new THREE.Vector3(), pos: null };
+function setHover(id) { S.hover = id; canvas.style.cursor = id ? 'pointer' : ''; }
+function select(id, focus) {
+  S.selected = id;
+  if (selHelper) { scene.remove(selHelper); selHelper.geometry.dispose(); selHelper = null; }
+  if (id) {
+    const c = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+    selHelper = new THREE.BoxHelper(P[id].group, c);
+    scene.add(selHelper);
+    if (id === 'radar') S.coneUntil = Infinity; else if (S.coneUntil === Infinity) S.coneUntil = 0;
+    if (focus) { focusGoal.active = true; focusGoal.target.copy(anchorWorld(id)); focusGoal.pos = null; }
+  } else if (S.coneUntil === Infinity) S.coneUntil = 0;
+  renderDetail();
+  renderList();
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+const DEMO_LABEL = { capture: 'Run the capture sequence', cover: 'Slide the cover', presence: 'Toggle someone at the sink', flash: 'Fire the capture flash' };
+function renderDetail() {
+  const d = $('#detail');
+  const p = S.selected && PART[S.selected];
+  if (!p) {
+    d.innerHTML = `
+      <span class="eyebrow">Overview</span>
+      <h2>How the parts work together</h2>
+      <p class="does">The Pi behind the glass runs the display, reads the sensors and drives the camera. Everything that can fail sits on parts you reach through the back panel.</p>
+      <h4>A capture, end to end</h4>
+      <ul>
+        <li>You tap Take photo on your phone.</li>
+        <li>The hall sensor checks the lens cover; the mirror asks you to slide it open.</li>
+        <li>A 3-2-1 countdown, then the screen and LEDs flash as a fill light.</li>
+        <li>The photo is checked, then you keep or retake it on your phone.</li>
+        <li>The mirror reminds you to close the cover.</li>
+      </ul>
+      <div class="row"><button type="button" class="primary" data-act="capture">Run the capture sequence</button><button type="button" data-act="explode">Show the exploded view</button></div>`;
+  } else {
+    d.innerHTML = `
+      <span class="eyebrow">${esc(p.group)}</span>
+      <h2>${esc(p.name)}</h2>
+      <p class="does">${esc(p.does)}</p>
+      <h4>How it works</h4>
+      <ul>${p.how.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>
+      <h4>Specs</h4>
+      <dl class="specs">${p.specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
+      <div class="row">
+        ${p.demo ? `<button type="button" class="primary" data-act="${p.demo}">${DEMO_LABEL[p.demo]}</button>` : ''}
+        <button type="button" data-act="clear">Back to overview</button>
+      </div>`;
+  }
+  d.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => act(b.dataset.act)));
+}
+function renderList() {
+  const nav = $('#plist');
+  nav.innerHTML = GROUPS.map((g) => `
+    <div><h3>${esc(g)}</h3><div class="grp">
+      ${PARTS.filter((p) => p.group === g).map((p) => `<button type="button" data-id="${p.id}" aria-current="${S.selected === p.id}">${esc(p.name)}</button>`).join('')}
+    </div></div>`).join('');
+  nav.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => select(S.selected === b.dataset.id ? null : b.dataset.id, true)));
+}
+function act(a) {
+  if (a === 'capture') runCapture();
+  else if (a === 'cover') setCover(!S.coverOpen);
+  else if (a === 'presence') setPresence(!S.presence);
+  else if (a === 'flash') flash();
+  else if (a === 'explode') setExploded(true);
+  else if (a === 'clear') select(null);
+}
+
+/* ---------- Toggles ---------- */
+const bExplode = $('#bExplode'), bXray = $('#bXray'), bLabels = $('#bLabels'), bCover = $('#bCover'), bPresence = $('#bPresence');
+let explodeT = 0, coverX = 0;
+function setExploded(v) { S.exploded = v; bExplode.setAttribute('aria-pressed', v); }
+function setXray(v) {
+  S.xray = v; bXray.setAttribute('aria-pressed', v);
+  glassMat.opacity = v ? 0.2 : 0.78;
+  backMat.opacity = v ? 0.4 : 1; backMat.depthWrite = !v; backMat.transparent = v; backMat.needsUpdate = true;
+}
+function setLabels(v) { S.labels = v; bLabels.setAttribute('aria-pressed', v); viewer.classList.toggle('labels-off', !v); }
+function setCover(v) { S.coverOpen = v; bCover.setAttribute('aria-pressed', v); if (!v && S.coverReminder) { S.coverReminder = false; drawScreen(); } updateReadout(); }
+function setPresence(v) {
+  S.presence = v; bPresence.setAttribute('aria-pressed', v);
+  S.coneUntil = Math.max(S.coneUntil, performance.now() + 2600);
+  if (!S.capture) { S.screen = v ? 'ambient' : 'off'; drawScreen(); }
+  S.ledTarget = v ? 0.35 : 0.06;
+  updateReadout();
+}
+bExplode.addEventListener('click', () => setExploded(!S.exploded));
+bXray.addEventListener('click', () => setXray(!S.xray));
+bLabels.addEventListener('click', () => setLabels(!S.labels));
+bCover.addEventListener('click', () => setCover(!S.coverOpen));
+bPresence.addEventListener('click', () => setPresence(!S.presence));
+$('#bReset').addEventListener('click', () => { focusGoal.active = true; focusGoal.target.copy(HOME_TARGET); focusGoal.pos = HOME_POS.clone(); });
+$('#bCapture').addEventListener('click', runCapture);
+addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
+
+function updateReadout() {
+  const hallClosed = coverX < 1;
+  const camOn = S.capture && ['preview', 'countdown', 'flash'].includes(S.capture.phase);
+  const screenWord = { ambient: 'ambient', off: 'off (blank)', coverPrompt: 'cover prompt', preview: 'live preview', checking: 'checking', result: 'result', flash: 'full white' }[S.screen];
+  $('#readout').innerHTML = [
+    `<b>Presence</b> <span class="${S.presence ? 'on' : ''}">${S.presence ? 'detected · 0.6 m' : 'nobody'}</span>`,
+    `<b>Display</b> ${screenWord}`,
+    `<b>Cover</b> <span class="${hallClosed ? '' : 'attn'}">${hallClosed ? 'closed (magnet detected)' : 'open'}</span>`,
+    `<b>Camera</b> <span class="${camOn ? 'on' : ''}">${camOn ? 'live' : 'powered down'}</span>`,
+    `<b>LEDs</b> ${Math.round(S.led * 100)}%`,
+  ].join('<br>');
+}
+
+/* ---------- Capture sequence ---------- */
+const STEPS = ['Tap Take photo on the phone', 'Hall sensor checks the cover', 'Live preview with body guide', 'Countdown 3, 2, 1', 'Flash: screen white, LEDs up', 'Quality check', 'Keep or Retake on the phone', 'Reminder: close the cover'];
+const sleep = (ms) => new Promise((r) => setTimeout(r, reduceMotion ? Math.min(ms, 250) : ms));
+function renderSteps(i) {
+  $('#capSteps').innerHTML = STEPS.map((s, k) => `<li class="${k < i ? 'done' : k === i ? 'now' : ''}">${esc(s)}</li>`).join('');
+}
+async function waitFor(cond, token) {
+  while (!cond()) { if (token.cancel) throw new Error('cancel'); await new Promise((r) => setTimeout(r, 100)); }
+}
+async function flash() {
+  S.screen = 'flash'; drawScreen(); S.ledTarget = 1; S.led = Math.max(S.led, 0.6);
+  await sleep(450);
+  S.ledTarget = S.presence ? 0.35 : 0.06;
+  if (!S.capture) { S.screen = S.presence ? 'ambient' : 'off'; drawScreen(); }
+}
+async function runCapture() {
+  if (S.capture) return;
+  const token = { cancel: false, phase: 'start' };
+  S.capture = token;
+  $('#capturePanel').hidden = false;
+  const bOpen = $('#bCapOpen'), bClose = $('#bCapClose');
+  const step = (i, phase) => { token.phase = phase; renderSteps(i); updateReadout(); if (token.cancel) throw new Error('cancel'); };
+  try {
+    if (!S.presence) setPresence(true);
+    step(0, 'tap'); await sleep(900);
+    step(1, 'cover');
+    if (!S.coverOpen) {
+      S.screen = 'coverPrompt'; drawScreen(); bOpen.hidden = false;
+      select('cover', false);
+      await waitFor(() => coverX > 4.5, token);
+      bOpen.hidden = true;
+    }
+    step(2, 'preview'); S.screen = 'preview'; S.countdown = 0; drawScreen(); await sleep(1400);
+    step(3, 'countdown');
+    for (const n of [3, 2, 1]) { S.countdown = n; drawScreen(); await sleep(800); if (token.cancel) throw new Error('cancel'); }
+    S.countdown = 0;
+    step(4, 'flash'); await flash();
+    step(5, 'check'); S.screen = 'checking'; drawScreen(); await sleep(1000);
+    step(6, 'result'); S.screen = 'result'; drawScreen(); await sleep(2000);
+    step(7, 'reminder'); S.screen = 'ambient'; S.coverReminder = true; drawScreen();
+    if (S.coverOpen) { bClose.hidden = false; await waitFor(() => !S.coverOpen && coverX < 0.5, token); }
+    renderSteps(STEPS.length);
+    await sleep(700);
+  } catch (e) { /* stopped */ }
+  bOpen.hidden = true; bClose.hidden = true;
+  S.countdown = 0; S.coverReminder = false;
+  S.capture = null;
+  S.screen = S.presence ? 'ambient' : 'off'; drawScreen();
+  S.ledTarget = S.presence ? 0.35 : 0.06;
+  $('#capturePanel').hidden = true;
+  updateReadout();
+}
+$('#bCapOpen').addEventListener('click', () => setCover(true));
+$('#bCapClose').addEventListener('click', () => setCover(false));
+$('#bCapCancel').addEventListener('click', () => { if (S.capture) S.capture.cancel = true; });
+
+/* ---------- Picking ---------- */
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+function pickAt(ev) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, cam);
+  const hits = ray.intersectObjects(pickables, false);
+  if (!hits.length) return null;
+  if (S.xray && !S.exploded) {
+    const solid = hits.find((h) => h.object.userData.part !== 'glass' && h.object.userData.part !== 'backpanel');
+    if (solid) return solid.object.userData.part;
+  }
+  return hits[0].object.userData.part;
+}
+let downAt = null;
+canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', (e) => {
+  if (!downAt) return;
+  const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
+  downAt = null;
+  if (moved < 5) { const id = pickAt(e); select(id === S.selected ? null : id, false); }
+});
+let hoverEv = null;
+canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') hoverEv = e; });
+canvas.addEventListener('pointerleave', () => { hoverEv = null; setHover(null); });
+
+/* ---------- Theme ---------- */
+function applyTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  TC.accent = cs.getPropertyValue('--accent').trim();
+  TC.muted = cs.getPropertyValue('--muted').trim();
+  scene.background = new THREE.Color(cs.getPropertyValue('--scene').trim());
+  wallMat.color.set(cs.getPropertyValue('--wall').trim());
+  counterMat.color.set(cs.getPropertyValue('--counter').trim());
+  if (selHelper) selHelper.material.color.set(cs.getPropertyValue('--accent').trim());
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+/* ---------- Resize + loop ---------- */
+let vw = 1, vh = 1;
+function resize() {
+  const r = viewer.getBoundingClientRect();
+  vw = Math.max(1, r.width); vh = Math.max(1, r.height);
+  renderer.setSize(vw, vh, false);
+  cam.aspect = vw / vh;
+  cam.updateProjectionMatrix();
+  leaders.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+}
+new ResizeObserver(resize).observe(viewer);
+resize();
+
+const clock = new THREE.Clock();
+function ease(cur, target, dt, rate) { return reduceMotion ? target : cur + (target - cur) * (1 - Math.exp(-dt * rate)); }
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  explodeT = ease(explodeT, S.exploded ? 1 : 0, dt, 4.5);
+  for (const id in P) P[id].group.position.copy(P[id].explode).multiplyScalar(explodeT);
+  context.visible = explodeT < 0.08;
+  const prevCover = coverX;
+  coverX = ease(coverX, S.coverOpen ? 5 : 0, dt, 7);
+  coverRig.position.x = coverX;
+  if ((prevCover < 1) !== (coverX < 1)) updateReadout();
+  hallLedMat.emissiveIntensity = coverX < 1 ? 2.2 : 0;
+
+  const prevLed = S.led;
+  S.led = ease(S.led, S.ledTarget, dt, S.ledTarget > S.led ? 14 : 4);
+  ledMat.emissiveIntensity = 0.25 + S.led * 2.6;
+  ledLight.intensity = S.led * 520;
+  if (Math.round(prevLed * 100) !== Math.round(S.led * 100)) updateReadout();
+
+  const now = performance.now();
+  const coneOn = now < S.coneUntil;
+  coneMat.opacity = ease(coneMat.opacity, coneOn ? (S.presence ? 0.12 : 0.05) : 0, dt, 6);
+  cone.visible = coneMat.opacity > 0.004;
+  cone.position.set(0, -44.5, 0.62).add(P.radar.group.position);
+
+  if (focusGoal.active) {
+    const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 5);
+    const d = focusGoal.target.clone().sub(controls.target).multiplyScalar(k);
+    controls.target.add(d);
+    if (focusGoal.pos) cam.position.lerp(focusGoal.pos, k); else cam.position.add(d);
+    if (d.length() < 0.02 && (!focusGoal.pos || cam.position.distanceTo(focusGoal.pos) < 0.05)) focusGoal.active = false;
+  }
+  controls.update();
+  if (selHelper) selHelper.update();
+
+  if (hoverEv) { setHover(pickAt(hoverEv)); hoverEv = null; }
+  renderer.render(scene, cam);
+  updateLabels(vw, vh);
+  requestAnimationFrame(frame);
+}
+controls.addEventListener('start', () => { focusGoal.active = false; });
+
+renderDetail();
+renderList();
+updateReadout();
+frame();
+</script>
+</body>
+</html>

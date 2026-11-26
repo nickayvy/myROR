@@ -2,9 +2,9 @@
 
 Last updated 2026-11-25. This file is self-contained: a new session should be able to start from it without the earlier conversation.
 
-**Status: planning is done, nothing is built.** There is no application code, no git repo and no hardware assembled. The only code here is a 3D visual model of the mirror.
+**Status: build started 2026-11-25.** The cloud database and image bucket exist and are verified (section 0). Backend code is being written by Opus 5.5 engineers under a project-admin session. The Pi has an OS and SSH only; no hardware is assembled.
 
-**Where this file and the spec doc disagree, this file wins.** Section 4 lists what the spec gets wrong.
+**Where this file and the spec doc disagree, this file wins.** Section 4 lists what the spec gets wrong. **Where section 0 and a later section disagree, section 0 wins**: sections 7, 12, 14 and 17 were written for SQLite on the Pi with an R2 backup and have not all been rewritten.
 
 Labels used throughout:
 
@@ -14,6 +14,96 @@ Labels used throughout:
 | **[PROPOSED]** | Claude proposed it. The user has not objected, but has not explicitly confirmed it either. |
 | **[VERIFIED]** | Checked against a source (section 22). |
 | **[UNTESTED]** | An assumption or estimate. Measure it before relying on it. |
+
+---
+
+## 0. Decisions of 2026-11-25 (second session)
+
+### Decided by the user [USER]
+
+| # | Decision | Replaces |
+| --- | --- | --- |
+| U25 | The database is **Neon Postgres**, not SQLite on the Pi | P1 (data half), section 12 |
+| U26 | Images go to cloud object storage ("everything in Neon, images in S3 or something") | "Local SSD plus R2 backup" |
+| U27 | The backend still runs on the Pi and is reachable on home Wi-Fi only | Confirms U4 and P1 (backend half) |
+| U28 | FastAPI backend, React + Vite phone app | Confirms P2 |
+| U29 | Background removal uses fal BiRefNet. Full garment photos (no body) may go to fal | Extends U24 |
+| U30 | Claude Haiku 5.5 for tagging, Sonnet 5.5 for outfits | Confirms P3 |
+| U31 | Budget is **$5 a month live, plus a separate $10 one-time development cap** | Q8 |
+| U32 | Style references stay in v2. Body fit uses self-reported notes, never photo estimates | Q11, Q12 |
+| U33 | Fahrenheit. Morning precompute at 06:00 | Q13 (units), Q14 |
+| U34 | Implementation is done by Opus 5.5 engineers, each with an isolated environment for QA, reporting to the project-admin session | |
+| U35 | Face-blurred mirror photos may be stored in the Neon bucket | Extends U24; confirms A2 |
+| U36 | **Unblurred originals of mirror photos are stored in the Neon bucket too** ("this will be for personal use"). Said minutes after U35, which it widens | Reverses the "unblurred frames never leave the Pi" half of A2 |
+| U37 | **Unblurred mirror photos may be sent to fal and Claude.** Asked directly whether fal and Claude should also receive them, the user answered "Yes, send unblurred" | Reverses U24's blur requirement and C11's concern |
+
+### Chosen by the admin session [PROPOSED]
+
+| # | Choice | Why |
+| --- | --- | --- |
+| A1 | Images live in **Neon Object Storage**, private bucket `mirror-images` | One provider, no extra account, S3-compatible. Swapping to R2 or S3 is a config change |
+| A2 | Face blur is an optional setting, `FACE_BLUR`, **off by default** (U36, U37). Off: `photos.storage_key` is the photo as taken, and it is what fal and Claude receive. On: `storage_key` is the blurred copy sent to AI and `photos.original_key` keeps the original | Keeps a one-line way back if the user changes their mind; the blur requirement flipped twice on 2026-11-25. Sections 10 and 14 still describe a mandatory blur and are superseded |
+| A7 | Every fal call sends `X-Fal-Store-IO: 0`, uses `sync_mode: true`, and passes the image as a short-lived presigned link from the private bucket rather than uploading it to fal's CDN | fal keeps request payloads 90 days and makes CDN uploads public by default; its policy does not say whether inputs train models [VERIFIED from fal docs 2026-11-25]. This matters more now that faces are sent. Whether fal fetches a presigned link correctly is [UNTESTED] |
+| A3 | Nothing polls Neon while idle | The free plan's compute must be allowed to scale to zero. Jobs are woken in-process |
+| A4 | Today's payload (weather, events, outfit, collage) is cached on the Pi's disk | Keeps the 2-second target and survives an internet outage, now that the database is remote |
+| A5 | The worker runs inside the `mirror-api` process | One fewer process on 4 GB; no cross-process queue polling |
+| A6 | Backup direction is reversed: nightly `pg_dump` plus bucket sync **to the Pi's disk** | Neon's free plan keeps only 6 hours of history, which is not a backup. Replaces P6 (R2). Not built yet |
+
+| A8 | A request from the Pi's own loopback address counts as the mirror and needs no token; every LAN request needs a device token. `X-Forwarded-For` is ignored | MagicMirror runs on the Pi itself. Section 11 said every route needs a token. **Consequence:** never put a reverse proxy on the Pi in front of the API without revisiting this, or every request becomes "local" |
+| A9 | Claude refusal fallbacks are off; a refusal falls back to rules-only outfits | Fallback attempts bill at another model's rates, which the spend ledger does not itemise |
+
+| A10 | Check-in segmentation sends **all garment boxes to SAM 3 in one request**, falling back to one request per box | Pricing is per request, so about $0.15 a month instead of $0.60. Supersedes C17's "budget one call per garment". Multi-box behaviour is in the schema but [UNTESTED] |
+| A11 | Embeddings stay local (FashionCLIP); the pipeline must work without them | fal hosts no image-embedding endpoint (catalog searched 2026-11-25). Speed on the Pi is [UNTESTED]; if it is too slow the options are another provider or tag-based matching |
+
+### First live fal calls [VERIFIED 2026-11-25, one synthetic image only]
+
+- The fal key works. Both calls were sent with `X-Fal-Store-IO: 0` and `sync_mode: true`, with the input as a 5-minute presigned link from the private bucket, and both returned data URIs. So A7 works as designed.
+- `fal-ai/birefnet/v2` returned a clean RGBA cutout in 1.1 s. Its real price is still unknown.
+- `fal-ai/sam-3/image` with two boxes in one request returned exactly two masks, one per box, each tight to its box (A10 works). It took 21 s, probably a cold start. `metadata[]` came back sorted by score with an `index` that did not match mask order, so masks are mapped to boxes by overlap, not by `metadata.index`.
+- Open-Meteo answers for the configured location and `America/Los_Angeles`.
+- Not yet tested: real garment and mirror photos, whether a multi-box request bills as one, and any Claude call (no Anthropic key yet).
+- Spend recorded in the `dev` ledger: $0.005 for SAM 3 and a $0.002 placeholder for BiRefNet.
+
+### fal catalog survey (2026-11-25, read from fal's pages; no inference calls made)
+
+- **Background removal:** keep `fal-ai/birefnet/v2` as the default. Bake off against `bria/rmbg-3` ($0.018 per image), `pixelcut/background-removal` ($0.016) and `fal-ai/feynobg` ($0.001). BiRefNet's real price is still unknown ("$0 per compute seconds"). For lace, straps and white-on-white, try the "General Use (Dynamic)" model at 2304 and "Matting"; that advice is inference.
+- **Check-in segmentation:** keep `fal-ai/sam-3/image` ($0.005 per request). `fal-ai/sam-3-1/image` costs twice as much; test it only in the bake-off. fal has no human-parsing or fashion-specific segmentation model.
+- **Catalog images (optional):** `pixelcut/product-photo` ($0.024) returns a cutout on a white canvas with a shadow in one call.
+- **Virtual try-on (v2):** roughly $0.02–0.08 per image; cheapest listed are `fal-ai/flux-2-lora-gallery/virtual-tryon` and `bria/fibo-edit-1.5/virtual-try-on`.
+- **Bulk onboarding cost:** 300 photos through a paid remover is about $5 (RMBG-3 $5.40, Pixelcut $4.80), which fits the $10 development cap but not the $5 monthly cap. Use BiRefNet for the bulk and a paid model only for failures.
+- **Not verified:** real prices of the "$0 per compute seconds" endpoints (needs a key), whether a multi-box SAM 3 request bills as one, which models are partner-hosted, and every quality claim (vendor text only).
+
+### What exists in code [VERIFIED 2026-11-25]
+
+- Backend foundation under `server/` (run and extension instructions in `server/README.md`): config, async database pool and migration runner, S3 and local storage, QR pairing and device tokens, spend ledger with both caps, Claude client with a fake for tests, durable in-process job queue and daily scheduler, WebSocket hub, hardware mocks, shared contracts.
+- `ops/dev/qa.sh` runs the suite in an isolated container stack (Postgres with pgvector, MinIO). 81 tests pass; re-run independently by the admin session.
+- Checked against the real Neon database and bucket: the migration runner reports nothing pending, `/api/health` shows database and storage ok in about 0.3 s, pairing and an authenticated call work. The device row this created (`admin-smoke`) is revoked.
+- Not yet exercised: any live Claude call, the Pi itself, a real browser on the WebSocket.
+- Integrations (`server/integrations/`): Open-Meteo weather, three merged iCal feeds with a local merged feed for MagicMirror, event formality tagging, the Reminders Shortcut endpoint (build steps in `server/integrations/README.md`), and the today payload cached in memory and on disk. Checked on the real settings: live San Diego weather, cached `/api/today` under 1 ms.
+- Recommender (`server/recommender/`, `server/mirror_api/taxonomy.py`): taxonomy, rules stage, Sonnet composer returning codes from a candidate table, validator, rules-only fallback, spend modes, feedback and wear logging, collage, style quiz and profile with a weekly update. Live smoke script: `server/scripts/smoke_outfits.py` (never run; needs the Anthropic key).
+- Closet pipeline (`server/pipeline/`, `server/providers/`): upload and image prep, fal background removal and SAM 3 segmentation with the A7 safeguards, tagging, optional local embeddings, duplicate matching, review inbox, closet API, photo deletion, check-ins. Bake-off scripts in `eval/`.
+- Combined suite: 396 tests pass and ruff is clean, re-run by the admin session. Migrations 0004 and 0005 are applied to Neon.
+- Live pipeline check on real Neon, bucket and fal with a synthetic garment image: upload → background removal → inbox in about 6 s, clean cutout, presigned image link works, deletion leaves nothing behind. Tagging correctly reported "ANTHROPIC_API_KEY is not set" and still delivered the item to the inbox.
+- Starting values that are the user's to change (all are settings): recently-worn cool-down in days (top 4, bottom 2, one-piece 7, shoes 1, outer 0, accessory 0); outer layer required below 10 °C / 50 °F; hot above 25 °C / 77 °F; duplicate threshold 0.92 similarity with a "possible" band from 0.82; weekly style update Sundays 05:00.
+- Integration pass and capture flow (`server/capture/`, `mirror_api/presence.py`, `mirror_api/spa.py`): token checks no longer block when the database is down (2 s bound, then a local copy of token hashes); a Shortcut token can only push reminders; presence refreshes the day and outfits; one function writes the wear log; the capture state machine of section 9 runs on mock hardware; `phone/dist` is served at `/`. A database error answers 503, not 500.
+- `ops/dev/e2e.py` drives the whole journey over HTTP and WebSocket (pairing through capture, check-in, database outage and revocation). Admin re-run on a fresh stack: 18 of 18 steps pass; the suite is at 452 tests, ruff clean.
+- Re-checked on real Neon and fal after the pool and auth rewrite: health, upload → inbox, capture start and cancel, deletion. During that run Open-Meteo was unreachable from this machine; the app kept the last forecast and flagged weather as stale, as designed.
+- Phone app (`phone/`, React + Vite + TypeScript, 72 kB gzipped): Pair, Today, Capture, Add items (resumable bulk upload), Review inbox, Closet, Check-in results, Style, Settings. Type-check, lint and build re-run clean by the admin session. Driven in a headless browser at 390x844 against the real API; a real iPhone is untested.
+- MagicMirror module (`mirror/MMM-Stylist/`): outfit card, reminders, pairing QR, capture states, "camera uncovered" banner, blanking on absence. Run in real MagicMirror 2.38.0 in a container at 1080x1920; the Pi display through glass is untested. `config.sample.js` still has a placeholder weather location and must be set for the user's location at install.
+- Backend gaps the frontend reported, not yet fixed: many routes lack response models (so the phone's types for them are hand-written); no `GET /api/taxonomy` (the phone parses `taxonomy.py` at build time); no single "check-in awaiting confirmation" signal; no way to show the pairing QR from an already paired phone.
+- Not started: Pi drivers for camera, sensors and LEDs; systemd units and install script; the backup job (A6); face detector for the optional blur; calibration and move detection.
+
+### What exists in the cloud [VERIFIED 2026-11-25]
+
+- Neon project `my-ror` (id `wandering-river-69447846`), org `nickayy`, free plan, region `aws-us-east-2`, Postgres 17, pgvector 0.8.7. Branch `production`, database `mirror`.
+- Schema applied from `server/db/migrations/` (`0001_init`: 14 tables; `0002_photo_original_key`: adds `photos.original_key`; `0003_allow_unblurred_mirror_photos`: drops the blur check constraint).
+- Bucket `mirror-images`: upload, download and a presigned link work; an anonymous read returns 403.
+- Connection string and storage credential are in the git-ignored `.env`. `.env.example` lists every variable.
+- Region note: Object Storage is not offered in `us-west-2`, so the project is in `us-east-2`.
+
+### Still needed from the user
+
+fal key, Anthropic API key, three calendar iCal links, weather location and timezone, Reminders list names (Q13), the Pi's SSH address and username, and the hardware answers Q3–Q7 and Q15.
 
 ---
 

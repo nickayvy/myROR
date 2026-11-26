@@ -1,0 +1,133 @@
+/* MMM-Stylist. Light-on-black for two-way glass; sizes are for a portrait 24" panel
+   (1080x1920) read from 1-2 m. Override in MagicMirror's css/custom.css if needed. */
+
+.stylist {
+	width: 660px;
+	margin: 0 auto;
+	text-align: center;
+	color: #fff;
+}
+.stylist [hidden] { display: none !important; }
+
+.stylist-label {
+	font-size: 22px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: #9a9a9a;
+	margin: 0 0 14px;
+}
+
+/* outfit */
+.stylist-outfit { transition: opacity 0.8s ease; margin-bottom: 40px; }
+.stylist-outfit.fading { opacity: 0; }
+.stylist-card {
+	width: 560px;
+	height: 560px;
+	margin: 0 auto;
+	border-radius: 28px;
+	background: #f1efea; /* deliberate light area: cutouts need a light ground */
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.stylist-collage { width: 100%; height: 100%; object-fit: contain; display: block; }
+.stylist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; height: 100%; padding: 14px; box-sizing: border-box; }
+.stylist-grid.n1 { grid-template-columns: 1fr; }
+.stylist-grid img { width: 100%; height: 100%; object-fit: contain; min-height: 0; }
+.stylist-noimg { color: #77746d; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+.stylist-reason {
+	font-size: 34px;
+	line-height: 1.3;
+	font-weight: 300;
+	color: #f2f2f2;
+	margin: 22px auto 0;
+	max-width: 620px;
+}
+.stylist-dots { margin-top: 16px; }
+.stylist-dots span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #444; margin: 0 6px; }
+.stylist-dots span.on { background: #bbb; }
+
+/* reminders */
+.stylist-reminders { text-align: left; width: 560px; margin: 0 auto 30px; }
+.stylist-reminders .stylist-label { text-align: center; }
+.stylist-reminders ul { list-style: none; margin: 0; padding: 0; }
+.stylist-reminders li {
+	display: flex;
+	justify-content: space-between;
+	gap: 24px;
+	font-size: 30px;
+	line-height: 1.25;
+	padding: 10px 0;
+	border-top: 1px solid #222;
+}
+.stylist-reminders li:first-child { border-top: 0; }
+.stylist-reminders .t { color: #eee; font-weight: 300; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stylist-reminders .due { color: #9a9a9a; white-space: nowrap; font-size: 26px; }
+.stylist-reminders .due.over { color: #ffb347; }
+
+/* status */
+.stylist-status { font-size: 20px; color: #777; min-height: 24px; }
+.stylist-status .warn { color: #d9a441; }
+.stylist-status .sep { color: #444; }
+
+/* pairing */
+.stylist-pair { margin-bottom: 40px; }
+.stylist-qr {
+	display: inline-block;
+	background: #fff; /* QR codes need a light quiet zone */
+	padding: 18px;
+	border-radius: 20px;
+}
+.stylist-qr img { width: 320px; height: 320px; display: block; image-rendering: pixelated; }
+.stylist-pair-text { font-size: 30px; font-weight: 300; margin-top: 18px; }
+.stylist-code { font-size: 44px; letter-spacing: 0.18em; font-family: "Roboto Mono", ui-monospace, monospace; margin-top: 8px; }
+.stylist-pair-exp { font-size: 20px; color: #888; margin-top: 6px; }
+
+/* capture overlay: covers the whole mirror */
+.stylist-capture {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	background: #000;
+	color: #fff;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	padding-top: 260px; /* the camera sits at the top of the glass: keep eyes near it */
+	box-sizing: border-box;
+	text-align: center;
+	transition: background-color 0.2s ease-in;
+}
+.stylist-capture[hidden] { display: none; }
+.stylist-capture.s-flash { background: #fff; } /* deliberate full-white flash, ramps over 200 ms */
+.stylist-cap-title { font-size: 64px; font-weight: 300; line-height: 1.2; max-width: 900px; margin-top: 40px; }
+.stylist-cap-sub { font-size: 34px; color: #aaa; margin-top: 18px; max-width: 860px; }
+.stylist-cap-icon { font-size: 140px; line-height: 1; color: #fff; animation: stylist-nudge 1.4s ease-in-out infinite; }
+@keyframes stylist-nudge { 50% { transform: translateY(-24px); } }
+.stylist-outline { width: 520px; height: 676px; fill: none; stroke: rgba(255, 255, 255, 0.55); stroke-width: 4; stroke-dasharray: 14 12; }
+.s-countdown .stylist-outline { position: absolute; top: 260px; left: 50%; transform: translateX(-50%); stroke: rgba(255, 255, 255, 0.25); }
+.stylist-count { font-size: 300px; font-weight: 200; line-height: 1; position: relative; margin-top: 330px; font-variant-numeric: tabular-nums; }
+.stylist-review { width: 600px; height: 800px; background: #f1efea; border-radius: 28px; overflow: hidden; }
+.stylist-review img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stylist-spinner { width: 90px; height: 90px; border: 6px solid #333; border-top-color: #ddd; border-radius: 50%; animation: stylist-spin 1s linear infinite; margin-top: 120px; }
+@keyframes stylist-spin { to { transform: rotate(360deg); } }
+
+/* amber "camera uncovered" banner, above everything until the cover closes */
+.stylist-cover-banner {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 10000;
+	background: #ffb000;
+	color: #000;
+	font-size: 40px;
+	font-weight: 500;
+	text-align: center;
+	padding: 28px 24px;
+	animation: stylist-pulse 2.4s ease-in-out infinite;
+}
+.stylist-cover-banner[hidden] { display: none; }
+@keyframes stylist-pulse { 50% { background: #e09000; } }

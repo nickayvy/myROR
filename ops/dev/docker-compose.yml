@@ -1,0 +1,84 @@
+# Local stand-in for the cloud: Postgres 17 + pgvector (Neon), MinIO (Neon Object
+# Storage), and the API. Everything binds to 127.0.0.1. Ports and project name come
+# from the environment so several stacks can run side by side:
+#   COMPOSE_PROJECT_NAME=myror-a PG_PORT=54321 MINIO_PORT=59001 API_PORT=8801 \
+#     docker compose -f ops/dev/docker-compose.yml up -d --build --wait
+# No .env is read and no host credentials are passed in (ANTHROPIC_* included).
+name: ${COMPOSE_PROJECT_NAME:-myror-dev}
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mirror
+      POSTGRES_PASSWORD: mirror
+      POSTGRES_DB: mirror
+    ports:
+      - "127.0.0.1:${PG_PORT:-54320}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mirror -d mirror"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # The official minio/minio image is no longer pullable from Docker Hub; this is the
+  # frozen Bitnami build (arm64 + amd64), pinned. It creates the buckets itself.
+  minio:
+    image: bitnamilegacy/minio:2025.7.23
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: mirror-images,mirror-images-test
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-59000}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - miniodata:/bitnami/minio/data
+
+  api:
+    build:
+      context: ../../server
+      dockerfile: ../ops/dev/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      APP_ENV: dev
+      SPEND_LEDGER: dev
+      DATABASE_URL: postgresql://mirror:mirror@db:5432/mirror
+      STORAGE_BACKEND: s3
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: mirror-images
+      STORAGE_ACCESS_KEY_ID: minioadmin
+      STORAGE_SECRET_ACCESS_KEY: minioadmin
+      LOCAL_DATA_DIR: /tmp/mirror-data
+      # fake (answers {}) by default; LLM=scripted for ops/dev/e2e.py
+      LLM: ${LLM:-fake}
+      BG_REMOVER: fake
+      SEGMENTER: fake
+      EMBEDDER: fake
+      HARDWARE: mock
+      TIMEZONE: America/New_York
+    ports:
+      - "127.0.0.1:${API_PORT:-8800}:8000"
+    volumes:
+      # Live code. The venv lives at /opt/venv inside the image, so this mount is safe.
+      - ../../server:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
+  miniodata:
